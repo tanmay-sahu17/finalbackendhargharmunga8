@@ -277,7 +277,6 @@ def searchAng():
                     tehsil, 
                     zila, 
                     supervisor_name, 
-                    block_name,
                     pariyojna_name,
                     sector_name,
                     village_name,
@@ -322,7 +321,6 @@ def registerAng():
         tehsil = data.get('tehsil', '')
         zila = data.get('zila', '')
         supervisor_name = data.get('supervisor_name', '')
-        block_name = data.get('block_name', '')
         pariyojna_name = data.get('pariyojna_name', '')
         sector_name = data.get('sector_name', '')
         village_name = data.get('village_name', '')
@@ -339,15 +337,15 @@ def registerAng():
             INSERT INTO users (
                 name, contact_number, password_hash, role,
                 aanganwadi_id, gram, block, tehsil, zila,
-                supervisor_name, block_name, pariyojna_name, 
+                supervisor_name, pariyojna_name, 
                 sector_name, village_name, aanganwadi_kendra_name
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         values = (
             name, contact_number, password_hash, role,
             aanganwadi_id, gram, block, tehsil, zila,
-            supervisor_name, block_name, pariyojna_name,
+            supervisor_name, pariyojna_name,
             sector_name, village_name, aanganwadi_kendra_name
         )
 
@@ -1308,7 +1306,6 @@ def setup_database():
                 zila VARCHAR(100),
                 pariyojna_name VARCHAR(255),
                 sector_name VARCHAR(255),
-                block_name VARCHAR(255),
                 village_name VARCHAR(255),
                 aanganwadi_kendra_name VARCHAR(255),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -1381,16 +1378,16 @@ def setup_test_users():
             INSERT INTO users (
                 name, contact_number, password_hash, role,
                 aanganwaadi_id, gram, block, tehsil, zila,
-                supervisor_name, block_name
+                supervisor_name
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         
         # Test admin user
         values = (
             'Admin User', 'admin', 'admin123', 'admin',
             '001', 'Central Gram', 'Central Block', 'Central Tehsil', 'Raipur',
-            'Test Supervisor', 'Test Block'
+            'Test Supervisor'
         )
         db.execute(query, values)
         
@@ -1738,7 +1735,7 @@ def get_anganwadi_weekly_uploads():
                 COUNT(DISTINCT s.id) as total_students,
                 COUNT(DISTINCT su.id) as total_photos_uploaded,
                 MAX(u.supervisor_name) as supervisor_name,
-                MAX(u.block_name) as block_name,
+                MAX(u.block) as block,
                 MAX(u.pariyojna_name) as pariyojna_name,
                 MAX(u.sector_name) as sector_name,
                 MAX(u.village_name) as village_name
@@ -1817,7 +1814,7 @@ def get_anganwadi_weekly_uploads():
                 "total_students": total_students,
                 "total_photos_uploaded": total_photos_uploaded,
                 "supervisor_name": center['supervisor_name'],
-                "block_name": center['block_name'],
+                "block_name": center['block'],
                 "pariyojna_name": center['pariyojna_name'],
                 "sector_name": center['sector_name'],
                 "village_name": center['village_name'],
