@@ -109,6 +109,16 @@ class Database:
 def homepage():
     return '<body style=background-color:black;color:white;display:flex;align-items:center;justify-content:center;font-size:40px;>WORKING'
 
+# Health check endpoint for mobile app connectivity testing
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Simple health check endpoint for connectivity testing"""
+    return jsonify({
+        "status": "ok",
+        "message": "Server is running",
+        "timestamp": datetime.now().isoformat()
+    }), 200
+
 @app.route('/test-image/<filename>')
 def test_image(filename):
     try:
@@ -594,6 +604,62 @@ def search_families():
     """
     params = []
 
+    if search_query:
+        search_pattern = f"%{search_query}%"
+        query += """
+            AND (
+                name LIKE %s OR
+                mobile LIKE %s
+            )
+        """
+        params.extend([search_pattern, search_pattern])
+
+    try:
+        db.execute(query, tuple(params))
+        students = db.fetchall()
+
+        formatted_students = []
+        for student in students:
+            student['plantDistributed'] = bool(student['plantDistributed'])
+            formatted_students.append(student)
+
+        return jsonify(formatted_students), 200
+
+    except Exception as e:
+        return jsonify({'error': 'Internal server error', 'message': str(e)}), 500
+    finally:
+        db.close()
+
+@app.route('/search-mobile', methods=['GET'])
+def search_families_mobile():
+    """Mobile-specific search endpoint with aanganwadi filtering"""
+    db = Database(database=database_name)
+
+    search_query = request.args.get('query', '').strip()
+    aanganwadi_id = request.args.get('aanganwadi_id', '').strip()
+
+    query = """
+        SELECT
+            id,
+            name AS childName,
+            guardian_name AS parentName,
+            mobile AS mobileNumber,
+            address AS village,
+            aanganwadi_id,
+            totalImagesYet,
+            (plant_photo IS NOT NULL) AS plantDistributed
+        FROM
+            students
+        WHERE 1=1
+    """
+    params = []
+
+    # Filter by aanganwadi_id if provided
+    if aanganwadi_id:
+        query += " AND aanganwadi_id = %s"
+        params.append(aanganwadi_id)
+
+    # Add search query if provided
     if search_query:
         search_pattern = f"%{search_query}%"
         query += """
