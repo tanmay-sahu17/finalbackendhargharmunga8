@@ -3,6 +3,7 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import mysql.connector
+from mysql.connector import Error as MySQLError
 from flask import Response
 import uuid
 import os
@@ -24,8 +25,8 @@ production_global = False
 app = Flask(__name__, static_folder=UPLOAD_FOLDER, static_url_path='/static')
 CORS(app)
 
-app.config['SERVER_NAME'] = 'grx6djfl-5001.inc1.devtunnels.ms'
-app.config['PREFERRED_URL_SCHEME'] = 'https'
+# app.config['SERVER_NAME'] = 'grx6djfl-5001.inc1.devtunnels.ms'
+# app.config['PREFERRED_URL_SCHEME'] = 'https'
 
 # class ImagePredict:
 #     def __init__(self):
@@ -66,13 +67,17 @@ class Database:
                 password=self.password,
                 database=self.database,
                 charset='utf8mb4',
-                collation='utf8mb4_unicode_ci'
+                collation='utf8mb4_unicode_ci',
+                auth_plugin='mysql_native_password'
             )
             self.cursor = self.connection.cursor(dictionary=True)
             self._connected = True
             print(f"[DB SUCCESS] Connected to database: {self.database}")
-        except mysql.connector.Error as err:
+        except MySQLError as err:
             print(f"[DB ERROR] Failed to connect: {err}")
+            self._connected = False
+        except Exception as err:
+            print(f"[DB ERROR] General error: {err}")
             self._connected = False
 
     def execute(self, query, params=None):
@@ -859,8 +864,8 @@ def get_filtered_students():
             conditions.append("u.sector_name LIKE %s")
             params.append(f'%{sector_name}%')
         if village_name:
-            conditions.append("u.village_name LIKE %s")
-            params.append(f'%{village_name}%')
+            conditions.append("(u.village_name LIKE %s OR s.address LIKE %s)")
+            params.extend([f'%{village_name}%', f'%{village_name}%'])
         if aanganwadi_kendra_name:
             conditions.append("u.aanganwadi_kendra_name LIKE %s")
             params.append(f'%{aanganwadi_kendra_name}%')
