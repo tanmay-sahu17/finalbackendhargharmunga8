@@ -1,0 +1,42 @@
+-- Create the database (optional, if not already created)
+CREATE DATABASE IF NOT EXISTS hgm;
+USE hgm;
+
+-- Table: users
+CREATE TABLE IF NOT EXISTS users (
+    id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100),
+    contact_number VARCHAR(100),
+    password_hash VARCHAR(255),
+    role ENUM('admin','aanganwadi_worker','health_worker'),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    aanganwaadi_id VARCHAR(100),
+    gram VARCHAR(100),
+    block VARCHAR(100),
+    tehsil VARCHAR(100),
+    zila VARCHAR(100),
+    supervisor_name VARCHAR(100)
+);
+
+-- Table: students
+CREATE TABLE IF NOT EXISTS students (
+    id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(100),
+    name VARCHAR(100),
+    mobile VARCHAR(100),
+    password VARCHAR(100),
+    guardian_name VARCHAR(100),
+    father_name VARCHAR(100),
+    mother_name VARCHAR(100),
+    aanganwadi_code INT,
+    age INT,
+    dob VARCHAR(100),
+    weight FLOAT,
+    height FLOAT,
+    health_status ENUM('healthy','malnourished','critical'),
+    plant_photo LONGTEXT,
+    pledge_photo LONGTEXT,
+    address VARCHAR(255),
+    totalImagesYet INT DEFAULT 0,
+    INDEX (username) -- Creates the MUL (Multiple) key you saw
+);

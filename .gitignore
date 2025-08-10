@@ -1,0 +1,5 @@
+uploads/
+modelFile/
+*.h5
+*.jpg
+*.jpeg
