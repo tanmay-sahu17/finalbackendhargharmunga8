@@ -20,12 +20,13 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # a = int(input("Enter 1 for production and 0 for local development: "))
 # production_global = True if a == 1 else False
-production_global = False 
+production_global = False  # � CHANGED FOR LOCALHOST TESTING
 
 app = Flask(__name__, static_folder=UPLOAD_FOLDER, static_url_path='/static')
 CORS(app)
 
-# app.config['SERVER_NAME'] = 'grx6djfl-5001.inc1.devtunnels.ms'
+# 🔥 UNCOMMENT AND CHANGE FOR YOUR DOMAIN:
+# app.config['SERVER_NAME'] = 'yourdomain.com:5001'
 # app.config['PREFERRED_URL_SCHEME'] = 'https'
 
 # class ImagePredict:
@@ -51,7 +52,7 @@ class Database:
         else:
             self.host = 'localhost'
             self.user = 'root'
-            self.password = '1234'
+            self.password = '1234'  # ✅ Working password found
             self.database = 'hargharmunga'
 
         self.connection = None
@@ -2015,4 +2016,4 @@ def get_aanganwadi_statistics():
         db.close()
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    app.run(debug=False, host='0.0.0.0', port=5001)  # 🔥 debug=False for production
