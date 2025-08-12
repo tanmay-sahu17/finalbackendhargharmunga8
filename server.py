@@ -196,12 +196,13 @@ def get_family_by_user_id(user_id):
         family_data = db.fetchone()
 
         if family_data:
-            base_url = f"{app.config.get('PREFERRED_URL_SCHEME', 'http')}://{app.config['SERVER_NAME']}"
-
+            # Generate proper base URL for photo paths
+            base_url = request.url_root.strip('/')
+            
             if family_data.get('plant_photo'):
-                family_data['plant_photo'] = f"{base_url}{app.static_url_path}/{family_data['plant_photo']}"
+                family_data['plant_photo'] = f"{base_url}/static/{family_data['plant_photo']}"
             if family_data.get('pledge_photo'):
-                family_data['pledge_photo'] = f"{base_url}{app.static_url_path}/{family_data['pledge_photo']}"
+                family_data['pledge_photo'] = f"{base_url}/static/{family_data['pledge_photo']}"
 
             family_data['totalImagesYet'] = int(family_data.get('totalImagesYet', 0))
 
@@ -248,12 +249,13 @@ def get_family_by_user_id1(user_id):
         family_data = db.fetchone()
 
         if family_data:
-            base_url = f"{app.config.get('PREFERRED_URL_SCHEME', 'http')}://{app.config['SERVER_NAME']}"
-
+            # Generate proper base URL for photo paths
+            base_url = request.url_root.strip('/')
+            
             if family_data.get('plant_photo'):
-                family_data['plant_photo'] = f"{base_url}{app.static_url_path}/{family_data['plant_photo']}"
+                family_data['plant_photo'] = f"{base_url}/static/{family_data['plant_photo']}"
             if family_data.get('pledge_photo'):
-                family_data['pledge_photo'] = f"{base_url}{app.static_url_path}/{family_data['pledge_photo']}"
+                family_data['pledge_photo'] = f"{base_url}/static/{family_data['pledge_photo']}"
 
             family_data['totalImagesYet'] = int(family_data.get('totalImagesYet', 0))
 
@@ -639,55 +641,70 @@ def search_families():
 def search_families_mobile():
     """Mobile-specific search endpoint with aanganwadi filtering"""
     db = Database(database=database_name)
-
-    search_query = request.args.get('query', '').strip()
-    aanganwadi_id = request.args.get('aanganwadi_id', '').strip()
-
-    query = """
-        SELECT
-            id,
-            name AS childName,
-            guardian_name AS parentName,
-            mobile AS mobileNumber,
-            address AS village,
-            aanganwadi_id,
-            totalImagesYet,
-            (plant_photo IS NOT NULL) AS plantDistributed
-        FROM
-            students
-        WHERE 1=1
-    """
-    params = []
-
-    # Filter by aanganwadi_id if provided
-    if aanganwadi_id:
-        query += " AND aanganwadi_id = %s"
-        params.append(aanganwadi_id)
-
-    # Add search query if provided
-    if search_query:
-        search_pattern = f"%{search_query}%"
-        query += """
-            AND (
-                name LIKE %s OR
-                mobile LIKE %s
-            )
-        """
-        params.extend([search_pattern, search_pattern])
-
     try:
+        search_query = request.args.get('query', '').strip()
+        aanganwadi_id = request.args.get('aanganwadi_id', '').strip()
+
+        print(f"[SEARCH] Query: '{search_query}', Aanganwadi ID: '{aanganwadi_id}'")
+
+        query = """
+            SELECT
+                id,
+                name AS childName,
+                guardian_name AS parentName,
+                mobile AS mobileNumber,
+                address AS village,
+                aanganwadi_id,
+                totalImagesYet,
+                (plant_photo IS NOT NULL) AS plantDistributed
+            FROM
+                students
+            WHERE 1=1
+        """
+        params = []
+
+        # Filter by aanganwadi_id if provided
+        if aanganwadi_id:
+            query += " AND aanganwadi_id = %s"
+            params.append(aanganwadi_id)
+
+        # Add search query if provided
+        if search_query:
+            search_pattern = f"%{search_query}%"
+            query += """
+                AND (
+                    name LIKE %s OR
+                    mobile LIKE %s
+                )
+            """
+            params.extend([search_pattern, search_pattern])
+
         db.execute(query, tuple(params))
         students = db.fetchall()
 
         formatted_students = []
         for student in students:
-            student['plantDistributed'] = bool(student['plantDistributed'])
-            formatted_students.append(student)
+            if student:  # Safety check
+                student['plantDistributed'] = bool(student.get('plantDistributed', False))
+                formatted_students.append(student)
 
+        print(f"[SEARCH] Found {len(formatted_students)} students")
         return jsonify(formatted_students), 200
 
+    except mysql.connector.Error as db_err:
+        print(f"[SEARCH ERROR] Database error: {db_err}")
+        return jsonify({
+            'success': False,
+            'error': 'Database connection error', 
+            'message': 'डेटाबेस से कनेक्ट करने में समस्या है।'
+        }), 500
     except Exception as e:
-        return jsonify({'error': 'Internal server error', 'message': str(e)}), 500
+        print(f"[SEARCH ERROR] General error: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Internal server error', 
+            'message': 'डेटा लोड करने में समस्या है। कृपया बाद में कोशिश करें।'
+        }), 500
     finally:
         db.close()
 
@@ -1058,79 +1075,124 @@ def register():
 
 @app.route('/login', methods=['POST'])
 def login():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
     db = Database(database=database_name)
-
-    # Try login with password_hash field first
-    user_query = "SELECT * FROM users WHERE contact_number = %s AND password_hash = %s"
-    db.execute(user_query, (username, password))
-    user = db.fetchone()
-    
-    # If not found, try with just contact_number to debug
-    if not user:
-        print(f"Login attempt: username={username}, password={password}")
-        debug_query = "SELECT contact_number, password_hash FROM users WHERE contact_number = %s"
-        db.execute(debug_query, (username,))
-        debug_user = db.fetchone()
-        print(f"User found in DB: {debug_user}")
-        
-        # If user exists but password doesn't match, return specific error
-        if debug_user:
-            print(f"Password comparison: entered='{password}' vs stored='{debug_user.get('password_hash')}'")
+    try:
+        data = request.get_json()
+        if not data:
             return jsonify({
                 "success": False,
-                "message": f"Invalid password. Entered: '{password}', Expected: '{debug_user.get('password_hash')}'"
+                "message": "No data provided"
+            }), 400
+            
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            return jsonify({
+                "success": False,
+                "message": "Username and password are required"
+            }), 400
+
+        print(f"[LOGIN] Attempting login for: {username}")
+
+        # Try login with password_hash field first
+        user_query = "SELECT * FROM users WHERE contact_number = %s AND password_hash = %s"
+        db.execute(user_query, (username, password))
+        user = db.fetchone()
+        
+        # If not found, try with just contact_number to check if user exists
+        if not user:
+            debug_query = "SELECT contact_number, password_hash, name FROM users WHERE contact_number = %s"
+            db.execute(debug_query, (username,))
+            debug_user = db.fetchone()
+            
+            # If user exists but password doesn't match
+            if debug_user:
+                print(f"[LOGIN] User exists but wrong password for: {username}")
+                return jsonify({
+                    "success": False,
+                    "message": "गलत पासवर्ड। कृपया सही पासवर्ड डालें।"
+                }), 401
+        
+        if user:
+            print(f"[LOGIN] User login successful: {username}")
+            role = user.get("role", "").lower()
+            if role == "aanganwadi_worker":
+                mapped_role = "aanganwadi"
+            else:
+                mapped_role = "admin"
+
+            return jsonify({
+                "success": True,
+                "token": None,
+                "user": {
+                    "name": user.get("name"),
+                    "username": user.get("contact_number"),
+                    "role": mapped_role,
+                    "aanganwaadi_id": user.get("aanganwadi_id"),
+                    "address": user.get("gram"),
+                    "supervisor_name": user.get("supervisor_name")
+                },
+                "role": mapped_role
+            }), 200
+
+        # Try student login
+        student_query = "SELECT * FROM students WHERE username = %s AND password = %s"
+        db.execute(student_query, (username, password))
+        student = db.fetchone()
+
+        if student:
+            print(f"[LOGIN] Student login successful: {username}")
+            return jsonify({
+                "success": True,
+                "token": None,
+                "user": {
+                    "name": student.get("name"),
+                    "father_name": student.get("father_name"),
+                    "mother_name": student.get("mother_name"),
+                    "guardian_name": student.get("guardian_name"),
+                    "username": student.get("username"),
+                    "role": "student",
+                    "aanganwaadi_id": student.get("aanganwadi_id"),
+                    "address": student.get("address")
+                },
+                "role": "student"
+            }), 200
+
+        # Check if it's a student username but wrong password
+        student_check_query = "SELECT username, name FROM students WHERE username = %s"
+        db.execute(student_check_query, (username,))
+        student_check = db.fetchone()
+        
+        if student_check:
+            print(f"[LOGIN] Student exists but wrong password: {username}")
+            return jsonify({
+                "success": False,
+                "message": "गलत पासवर्ड। कृपया सही पासवर्ड डालें।"
             }), 401
-    
-    if user:
-        role = user.get("role", "").lower()
-        if role == "aanganwadi_worker":
-            mapped_role = "aanganwadi"
-        else:
-            mapped_role = "admin"
 
+        # No user or student found
+        print(f"[LOGIN] No user found with username: {username}")
         return jsonify({
-            "success": True,
-            "token": None,
-            "user": {
-                "name":user.get("name"),
-                "username": user.get("contact_number"),
-                "role": mapped_role,
-                "aanganwaadi_id" : user.get("aanganwaadi_id"),
-                "address": user.get("gram"),
-                "supervisor_name": user.get("supervisor_name")
-            },
-            "role": mapped_role
-        }), 200
+            "success": False,
+            "message": "उपयोगकर्ता नहीं मिला। कृपया सही मोबाइल नंबर डालें।"
+        }), 401
 
-    student_query = "SELECT * FROM students WHERE username = %s AND password = %s"
-    db.execute(student_query, (username, password))
-    student = db.fetchone()
-
-    if student:
+    except mysql.connector.Error as db_err:
+        print(f"[LOGIN ERROR] Database error: {db_err}")
         return jsonify({
-            "success": True,
-            "token": None,
-            "user": {
-                "name": student.get("name"),
-                "father_name": student.get("father_name"),
-                "mother_name": student.get("mother_name"),
-                "guardian_name": student.get("guardian_name"),
-                "age": student.get("age"),
-                "aanganwadi_code":student.get("aanganwadi_id"),
-                "username": student.get("username"),
-                "totalImagesYet": student.get("totalImagesYet"),
-                "role": "family"
-            },
-            "role": "family"
-        }), 200
-
-    return jsonify({
-        "success": False,
-        "message": "Invalid credentials"
-    }), 401
+            "success": False,
+            "message": "डेटाबेस में समस्या है। कृपया बाद में कोशिश करें।"
+        }), 500
+    except Exception as e:
+        print(f"[LOGIN ERROR] General error: {e}")
+        return jsonify({
+            "success": False,
+            "message": "लॉगिन में कोई समस्या हुई है। कृपया बाद में कोशिश करें।"
+        }), 500
+    finally:
+        if db:
+            db.close()
 
 @app.route('/get_photo', methods=['POST'])
 def get_photo():
