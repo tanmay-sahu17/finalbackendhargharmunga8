@@ -10,6 +10,8 @@ import uuid
 import os
 from werkzeug.utils import secure_filename
 import datetime
+import logging
+import sys
 # import model  # Commented out for now to avoid tensorflow dependency
 from datetime import datetime
 
@@ -21,10 +23,34 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # a = int(input("Enter 1 for production and 0 for local development: "))
 # production_global = True if a == 1 else False
-production_global = False  # � CHANGED FOR LOCALHOST TESTING
+production_global = True  # ✅ PRODUCTION MODE ENABLED
+
+# Configure Logging for Production
+if production_global:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler('harghar_app.log'),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    logger = logging.getLogger(__name__)
+    logger.info("🚀 Starting Harghar Application in PRODUCTION mode")
+else:
+    logging.basicConfig(level=logging.DEBUG)
+    logger = logging.getLogger(__name__)
+    logger.info("🔧 Starting Harghar Application in DEVELOPMENT mode")
 
 app = Flask(__name__, static_folder=UPLOAD_FOLDER, static_url_path='/static')
-CORS(app)
+
+# Production CORS Configuration
+if production_global:
+    # Allow all origins for production (as requested)
+    CORS(app, origins="*")
+else:
+    # Allow all origins for development
+    CORS(app)
 
 # 🔥 UNCOMMENT AND CHANGE FOR YOUR DOMAIN:
 # app.config['SERVER_NAME'] = 'yourdomain.com:5001'
@@ -41,7 +67,7 @@ CORS(app)
 #         return lis[classPredicted],confidence
 
 class Database:
-    def __init__(self, host="localhost", user="root", password="", database="project", production=False):
+    def __init__(self, host="localhost", user="root", password="", database="project", production=True):
         global production_global
         production = production_global 
         if production:
@@ -162,6 +188,42 @@ def test_image(filename):
         return send_from_directory(UPLOAD_FOLDER, filename)
     except Exception as e:
         return jsonify({'error': 'File not found or access issue', 'details': str(e)}), 404
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Production health check endpoint"""
+    try:
+        # Check database connection
+        db = Database()
+        connection = db.get_connection()
+        if connection:
+            connection.close()
+            db_status = "connected"
+        else:
+            db_status = "disconnected"
+        
+        # Check upload folder
+        upload_folder_exists = os.path.exists(UPLOAD_FOLDER)
+        
+        # System info
+        health_info = {
+            "status": "healthy" if db_status == "connected" and upload_folder_exists else "unhealthy",
+            "timestamp": datetime.now().isoformat(),
+            "database": db_status,
+            "upload_folder": "exists" if upload_folder_exists else "missing",
+            "mode": "production" if production_global else "development",
+            "version": "1.0.0"
+        }
+        
+        status_code = 200 if health_info["status"] == "healthy" else 503
+        return jsonify(health_info), status_code
+        
+    except Exception as e:
+        return jsonify({
+            "status": "unhealthy",
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }), 503
 
 @app.route('/api/photos/all')
 def get_all_photos():
@@ -2152,4 +2214,17 @@ def get_aanganwadi_statistics():
         db.close()
 
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=5001)  # 🔥 debug=False for production
+    # Production configuration
+    if production_global:
+        logger.info("🚀 Starting server in PRODUCTION mode")
+        logger.info(f"📊 Database: hgm (Production)")
+        logger.info(f"🌐 Host: 0.0.0.0:5001")
+        logger.info(f"🔒 Debug: False")
+        logger.info(f"📁 Upload folder: {UPLOAD_FOLDER}")
+        app.run(debug=False, host='0.0.0.0', port=5001, threaded=True)
+    else:
+        logger.info("� Starting server in DEVELOPMENT mode")
+        logger.info(f"📊 Database: hargharmunga (Local)")
+        logger.info(f"🌐 Host: 0.0.0.0:5001")
+        logger.info(f"🔒 Debug: False")
+        app.run(debug=False, host='0.0.0.0', port=5001)
