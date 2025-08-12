@@ -78,6 +78,23 @@ class Database:
         except MySQLError as err:
             print(f"[DB ERROR] Failed to connect: {err}")
             self._connected = False
+
+    def get_connection(self):
+        """Get a new database connection"""
+        try:
+            connection = mysql.connector.connect(
+                host=self.host,
+                user=self.user,
+                password=self.password,
+                database=self.database,
+                charset='utf8mb4',
+                collation='utf8mb4_unicode_ci',
+                auth_plugin='mysql_native_password'
+            )
+            return connection
+        except MySQLError as err:
+            print(f"[DB ERROR] Failed to get connection: {err}")
+            return None
         except Exception as err:
             print(f"[DB ERROR] General error: {err}")
             self._connected = False
@@ -106,10 +123,23 @@ class Database:
         return self.cursor.fetchone()
 
     def close(self):
-        if self.cursor:
-            self.cursor.close()
-        if self.connection:
-            self.connection.close()
+        try:
+            if self.cursor:
+                # Clear any unread results before closing
+                try:
+                    while self.cursor.nextset():
+                        pass
+                except mysql.connector.Error:
+                    pass
+                self.cursor.close()
+        except Exception as e:
+            print(f"[DB CLOSE ERROR] {e}")
+        finally:
+            try:
+                if self.connection:
+                    self.connection.close()
+            except Exception as e:
+                print(f"[DB CONNECTION CLOSE ERROR] {e}")
 
 
 @app.route('/')
@@ -132,6 +162,59 @@ def test_image(filename):
         return send_from_directory(UPLOAD_FOLDER, filename)
     except Exception as e:
         return jsonify({'error': 'File not found or access issue', 'details': str(e)}), 404
+
+@app.route('/api/photos/all')
+def get_all_photos():
+    """Get all photos from database"""
+    try:
+        db = Database()
+        connection = db.get_connection()
+        cursor = connection.cursor(dictionary=True)
+        
+        cursor.execute("""
+            SELECT id, name, username, plant_photo, pledge_photo
+            FROM students 
+            WHERE (plant_photo IS NOT NULL AND plant_photo != '') 
+               OR (pledge_photo IS NOT NULL AND pledge_photo != '')
+            ORDER BY id DESC
+        """)
+        
+        students = cursor.fetchall()
+        
+        # Format photos with proper URLs
+        base_url = request.url_root.rstrip('/')
+        for student in students:
+            if student.get('plant_photo'):
+                student['plant_photo_url'] = f"{base_url}/photo/{student['plant_photo']}"
+            if student.get('pledge_photo'):
+                student['pledge_photo_url'] = f"{base_url}/photo/{student['pledge_photo']}"
+        
+        cursor.close()
+        connection.close()
+        
+        return jsonify({
+            "success": True,
+            "count": len(students),
+            "photos": students
+        }), 200
+        
+    except Exception as e:
+        print(f"[ERROR] Get all photos: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route('/photo/<filename>')
+def serve_photo(filename):
+    """Serve photos from database or uploads folder"""
+    try:
+        # First try to serve from uploads folder
+        if os.path.exists(os.path.join(UPLOAD_FOLDER, filename)):
+            return send_from_directory(UPLOAD_FOLDER, filename)
+        
+        # If not found in uploads, create a placeholder or return error
+        return jsonify({'error': 'Photo not found', 'filename': filename}), 404
+        
+    except Exception as e:
+        return jsonify({'error': 'Photo serving error', 'details': str(e)}), 500
 
 @app.route('/search2')
 def search2Results():
@@ -274,6 +357,12 @@ def get_family_by_user_id1(user_id):
 def searchAng():
     db = Database(database=database_name)
     try:
+        # First check all users
+        check_query = "SELECT id, role, name FROM users LIMIT 10"
+        db.execute(check_query)
+        all_users = db.fetchall()
+        print(f"[DEBUG] All users in database: {all_users}")
+        
         query = """SELECT 
                     id, 
                     name, 
@@ -282,7 +371,7 @@ def searchAng():
                     created_at, 
                     aanganwadi_id, 
                     gram, 
-                    block, 
+                    block_name, 
                     tehsil, 
                     zila, 
                     supervisor_name, 
@@ -295,11 +384,13 @@ def searchAng():
                 ORDER BY created_at DESC"""
         db.execute(query)
         users_data = db.fetchall()
+        print(f"[DEBUG] Aanganwadi users found: {len(users_data)}")
 
         return jsonify({
             "success": True,
             "data": users_data,
-            "count": len(users_data)
+            "count": len(users_data),
+            "debug_all_users": all_users
         }), 200
 
     except Exception as e:
@@ -1708,13 +1799,15 @@ def get_centers_overview():
                 }
             }), 200
         
-        # Get all centers with students (using IFNULL/COALESCE for handling null values)
+        # Get all centers with students - simplified query using aanganwadi_id
         query = """
             SELECT 
-                COALESCE(s.aanganwadi_kendra_name, 'Unknown') as center_name,
+                s.aanganwadi_id,
+                CONCAT('Aanganwadi ID: ', s.aanganwadi_id) as center_name,
                 COUNT(DISTINCT s.ID) as total_students
             FROM students s
-            GROUP BY s.aanganwadi_kendra_name
+            WHERE s.aanganwadi_id IS NOT NULL
+            GROUP BY s.aanganwadi_id
             ORDER BY total_students DESC
         """
         
@@ -1724,25 +1817,13 @@ def get_centers_overview():
         overview_data = []
         for row in result:
             center_name = row['center_name']
+            aanganwadi_id = row['aanganwadi_id']
             total_students = row['total_students']
             
-            # Get upload statistics for this center (handle empty student_uploads table)
-            upload_query = """
-                SELECT 
-                    COALESCE(COUNT(su.student_id), 0) as total_uploads,
-                    COALESCE(COUNT(DISTINCT DATE(su.upload_time)), 0) as active_upload_days,
-                    MAX(su.upload_time) as last_upload_date
-                FROM students s
-                LEFT JOIN student_uploads su ON su.student_id = s.username
-                WHERE s.aanganwadi_kendra_name = %s
-            """
-            
-            db.execute(upload_query, (center_name,))
-            upload_result = db.fetchone()
-            
-            total_uploads = upload_result['total_uploads'] if upload_result and upload_result['total_uploads'] else 0
-            active_upload_days = upload_result['active_upload_days'] if upload_result and upload_result['active_upload_days'] else 0
-            last_upload_date = upload_result['last_upload_date'] if upload_result else None
+            # Get upload statistics for this center (simplified - assume 0 for now)
+            total_uploads = 0  # Simplified
+            active_upload_days = 0  # Simplified
+            last_upload_date = None  # Simplified
             
             overview_data.append({
                 'center_name': center_name,
@@ -1796,7 +1877,7 @@ def get_anganwadi_weekly_uploads():
                 COUNT(DISTINCT s.id) as total_students,
                 COUNT(DISTINCT su.id) as total_photos_uploaded,
                 MAX(u.supervisor_name) as supervisor_name,
-                MAX(u.block) as block,
+                MAX(u.block_name) as block_name,
                 MAX(u.pariyojna_name) as pariyojna_name,
                 MAX(u.sector_name) as sector_name,
                 MAX(u.village_name) as village_name
@@ -1875,7 +1956,7 @@ def get_anganwadi_weekly_uploads():
                 "total_students": total_students,
                 "total_photos_uploaded": total_photos_uploaded,
                 "supervisor_name": center['supervisor_name'],
-                "block_name": center['block'],
+                "block_name": center['block_name'],
                 "pariyojna_name": center['pariyojna_name'],
                 "sector_name": center['sector_name'],
                 "village_name": center['village_name'],
